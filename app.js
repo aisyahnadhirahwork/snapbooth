@@ -10,11 +10,17 @@ const STRIP_FILTERS = {
   mono: "grayscale(1) contrast(1.08)",
 };
 const FRAME_STYLES = {
-  classic: { background: "#fff1d6", caption: "#6f5547", slot: "#f0dcb8", mat: 0 },
-  polaroid: { background: "#ffffff", caption: "#5c4e46", slot: "#f4efe9", mat: 5 },
-  midnight: { background: "#26233a", caption: "#ffd98a", slot: "#3c3856", mat: 0 },
+  classic: { background: "#f7f2e9", caption: "#564239", slot: "#ebe2d6", mat: 0 },
+  polaroid: { background: "#fbf8f2", caption: "#5c493e", slot: "#efe9e1", mat: 5 },
+  midnight: { background: "#302529", caption: "#d3ba7a", slot: "#463338", mat: 0 },
 };
 
+const screens = {
+  welcome: document.querySelector("#welcome-screen"),
+  camera: document.querySelector("#camera-screen"),
+  finish: document.querySelector("#finish-screen"),
+};
+const beginSessionButton = document.querySelector("#begin-session-button");
 const camera = document.querySelector("#camera");
 const placeholder = document.querySelector("#placeholder");
 const cameraButton = document.querySelector("#camera-button");
@@ -23,6 +29,10 @@ const captureButton = document.querySelector("#capture-button");
 const downloadButton = document.querySelector("#download-button");
 const retakeButton = document.querySelector("#retake-button");
 const statusMessage = document.querySelector("#status");
+const cameraState = document.querySelector("#camera-state");
+const cameraHeading = document.querySelector("#camera-heading");
+const journeyProgress = document.querySelector("#journey-progress");
+const journeySteps = [...document.querySelectorAll(".journey-step")];
 const countdown = document.querySelector("#countdown");
 const flash = document.querySelector("#flash");
 const photoCount = document.querySelector("#photo-count");
@@ -41,9 +51,42 @@ let countdownTimer = null;
 let isCapturing = false;
 let isSwitchingCamera = false;
 
+function showScreen(name) {
+  Object.entries(screens).forEach(([screenName, screen]) => {
+    screen.hidden = screenName !== name;
+  });
+  screens[name].querySelector("h1, h2")?.focus();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
 function setStatus(message, isError = false) {
   statusMessage.textContent = message;
   statusMessage.classList.toggle("error", isError);
+}
+
+function setJourney(stage) {
+  const completed = stage === journeySteps.length;
+  const currentStage = Math.min(stage, journeySteps.length - 1);
+  const progress = completed ? 100 : (currentStage / (journeySteps.length - 1)) * 100;
+  journeyProgress.style.setProperty("--journey-progress", `${progress * 0.75}%`);
+  journeyProgress.setAttribute("aria-valuenow", String(completed ? journeySteps.length : stage + 1));
+  journeyProgress.setAttribute(
+    "aria-valuetext",
+    completed ? "Session complete" : `Step ${stage + 1} of ${journeySteps.length}: ${journeySteps[stage].lastElementChild.textContent}`,
+  );
+
+  journeySteps.forEach((step, index) => {
+    const isComplete = index < stage || completed;
+    const isCurrent = index === currentStage && !completed;
+    step.classList.toggle("is-complete", isComplete);
+    step.classList.toggle("is-current", isCurrent);
+    if (isCurrent) {
+      step.setAttribute("aria-current", "step");
+    } else {
+      step.removeAttribute("aria-current");
+    }
+    step.querySelector(".journey-number").textContent = isComplete ? "✓" : String(index + 1).padStart(2, "0");
+  });
 }
 
 async function startCamera() {
@@ -66,13 +109,16 @@ async function startCamera() {
     placeholder.hidden = true;
     flipCameraButton.hidden = false;
     flipCameraButton.disabled = false;
+    cameraButton.hidden = true;
     captureButton.disabled = false;
     document.body.classList.add("camera-on");
-    cameraButton.innerHTML = "<span aria-hidden=\"true\">◉</span> Camera on";
-    cameraButton.disabled = true;
-    setStatus("Looking good! Your photos stay on this device.");
+    cameraState.textContent = "LIVE";
+    cameraHeading.textContent = "Take your portraits";
+    setJourney(2);
+    setStatus("Camera ready. Take your first portrait when you’re ready.");
   } catch (error) {
     cameraButton.disabled = false;
+    setJourney(1);
     if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
       setStatus("Camera permission was denied. Allow camera access in your browser to continue.", true);
     } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
@@ -122,7 +168,10 @@ async function flipCamera() {
 function setFilter(filter) {
   if (!Object.hasOwn(STRIP_FILTERS, filter)) return;
   selectedFilter = filter;
-  camera.style.filter = STRIP_FILTERS[filter];
+  photoSlots.forEach((slot) => {
+    const photo = slot.querySelector("canvas");
+    if (photo) photo.style.filter = STRIP_FILTERS[filter];
+  });
   filterButtons.forEach((button) => {
     const active = button.dataset.filter === filter;
     button.classList.toggle("active", active);
@@ -202,7 +251,6 @@ function savePhoto() {
     cropY = (sourceHeight - cropHeight) / 2;
   }
 
-  context.filter = STRIP_FILTERS[selectedFilter];
   if (isFrontCamera) {
     context.translate(PHOTO_WIDTH, 0);
     context.scale(-1, 1);
@@ -232,7 +280,9 @@ function savePhoto() {
     retakeButton.hidden = false;
     stripHint.textContent = "Your little keepsake is ready.";
     photoStrip.classList.add("complete");
+    setJourney(3);
     setStatus("That’s your strip! Download it or start a new one.");
+    showScreen("finish");
   } else {
     setStatus(`${PHOTO_LIMIT - photos.length} more ${PHOTO_LIMIT - photos.length === 1 ? "photo" : "photos"} to go!`);
   }
@@ -243,6 +293,7 @@ function renderPhotos() {
     slot.classList.remove("pop");
     slot.replaceChildren();
     if (photos[index]) {
+      photos[index].style.filter = STRIP_FILTERS[selectedFilter];
       slot.append(photos[index]);
     } else {
       const number = document.createElement("span");
@@ -287,9 +338,9 @@ function downloadStrip() {
   canvas.height = Math.ceil(frameHeight + shadowOffsetY);
   const context = canvas.getContext("2d");
 
-  context.fillStyle = "#2b1d1a";
+  context.fillStyle = "#392a24";
   context.fillRect(shadowOffsetX, shadowOffsetY, frameWidth, frameHeight);
-  context.fillStyle = "#2b1d1a";
+  context.fillStyle = "#392a24";
   context.fillRect(0, 0, frameWidth, frameHeight);
   context.fillStyle = frame.background;
   context.fillRect(frameBorder, frameBorder, frameWidth - frameBorder * 2, frameHeight - frameBorder * 2);
@@ -299,9 +350,10 @@ function downloadStrip() {
     const top = frameBorder + padding + index * (slotHeight + gap);
     context.fillStyle = frame.slot;
     context.fillRect(left, top, slotWidth, slotHeight);
-    context.strokeStyle = "#2b1d1a";
+    context.strokeStyle = "#392a24";
     context.lineWidth = slotBorder;
     context.strokeRect(left + slotBorder / 2, top + slotBorder / 2, slotWidth - slotBorder, slotHeight - slotBorder);
+    context.filter = STRIP_FILTERS[selectedFilter];
     context.drawImage(
       photo,
       left + slotBorder + mat,
@@ -309,13 +361,14 @@ function downloadStrip() {
       PHOTO_WIDTH,
       photoHeight,
     );
+    context.filter = "none";
   });
   context.fillStyle = frame.caption;
   context.font = `700 ${9 * scale}px "Space Mono", monospace`;
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(
-    "@fotokita",
+    "SNAPBOOTH",
     frameWidth / 2,
     frameHeight - bottomPadding - captionHeight / 2,
   );
@@ -331,6 +384,7 @@ function downloadStrip() {
     link.download = "fotokita-photo-strip.png";
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setJourney(journeySteps.length);
     setStatus("Your photo strip has been downloaded!");
   }, "image/png");
 }
@@ -341,8 +395,11 @@ function resetStrip() {
   downloadButton.disabled = true;
   retakeButton.hidden = true;
   captureButton.disabled = !stream;
+  setJourney(2);
   stripHint.textContent = "Your four photos will show up here.";
   photoStrip.classList.remove("complete");
+  cameraHeading.textContent = "Take your portraits";
+  showScreen("camera");
   setStatus("Your photos stay on this device.");
 }
 
@@ -353,6 +410,10 @@ function stopCamera() {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
+beginSessionButton.addEventListener("click", () => {
+  setJourney(1);
+  showScreen("camera");
+});
 cameraButton.addEventListener("click", startCamera);
 flipCameraButton.addEventListener("click", flipCamera);
 captureButton.addEventListener("click", capturePhoto);
